@@ -1,0 +1,331 @@
+---
+title: "Inteligencia Artificial  - Laboratorio 1 -"
+output: 
+  html_document:
+    theme: simplex
+    code_folding: hide
+---
+<style type="text/css">
+
+body, td {
+   font-size: 14px;
+}
+code.r{
+  font-size: 14px;
+}
+pre {
+  font-size: 14px
+}
+div {
+    text-align: justify;
+    text-justify: inter-word;
+}
+p {
+    font-family: Arial, Helvetica, sans-serif;
+}
+</style>
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.align = "center") 
+load.libraries <- c('knitr', 'kableExtra', 'formattable', 'dplyr', 'ggplot2', 'data.table', 'testthat', 'gridExtra', 'corplot', 'GGally', 'e1071', 'caret', 'rsample', 'corrplot', 'e1071', 'caTools', 'class')
+# install.lib <- load.libraries[!load.libraries %in% installed.packages()]
+# for(libs in install.lib) install.packages(libs, dependences = TRUE)
+sapply(load.libraries, require, character = TRUE)
+options(knitr.table.format = "html")
+options(knitr.table.format = "html")
+options(scipen = 1000)
+set.seed(123)
+
+
+```
+
+## Task 1 - Regresión Lineal
+### Responda a cada de las siguientes preguntas de forma clara y lo más completamente posible.
+#### 1. Considera un modelo de regresión lineal con dos características, X₁ y X₂, y sus pesos correspondientes w₁ y w₂. Si el modelo predice una salida y mediante la ecuación y = 2w₁X₁ + 3w₂X₂ + 1, ¿cuál es la interpretación del coeficiente 3w₂ en el contexto del modelo?
+- los coeficientes asociados a las características representan su contribución al modelo, para la característica X₂ y el coeficiente 3w₂ nos indica que cualquier valor del peso w₂ cambia en 3 unidades constantes, por lo que el modelo se ve más afectado por este peso w₂ que por el peso w₁.
+
+#### 2. Explica el concepto de multicolinealidad en el contexto de la regresión lineal. ¿Cómo afecta la multicolinealidad a la interpretación de los coeficientes de regresión individuales?
+- la multicolinealidad ocurre cuando dos o más variables de características están altamente correlacionadas entre sí. Si existe una fuerte relación lineal entre estas variables predictoras, puede afectar negativamente la interpretación de los coeficientes de regresión individuales debido a que no se podrá determinar con exactitud la contribución de cada variable por separado.
+
+## Task 2 - Clasificación de Sitios de Phishing Regresión Logística y KNN
+#### Como bien se sabe, los sitios web de phishing siguen siendo de las formas más efectivas para los cibercriminales para robar información. Por ello, aprender a identificar de forma proactiva aquellos sitios sospechosos para poder bloquearlos es una tarea importante. Bajo este contexto, se le ha solicitado que cree modelos para la identificación de sitios. Para ello:
+* Usará el dataset proporcionado en Kaggle en el siguiente enlace
+  + Recuerden que pueden descargar el código directamente con llaves generadas desde Kaggle o bien pueden ingresar al enlace y descargar el archivo como usualmente lo hace con cualquier otro documento
+* La especificación de las columnas la encuentran en el siguiente enlace
+  + Las columnas se especifican a partir de la página 6
+* Deben hacer una breve exploración con los datos. Esto implica, pero no está limitado a:
+  + Hacer encoding de las variables que se necesiten
+  + Revisar si el dataset está balanceado, caso no estarlo, aplicar alguna técnica para balancearlo lo más y mejor posible
+  + Escalar las variables si considera necesario
+  + Selección de variables
+* Recuerden hacer el split para training, testing y si consideran necesario para validationx
+  + 80% training
+  + 20% testing
+    + 10% validation si lo necesitan
+* Recuerde definir de forma clara y razonada (es decir, diga el por qué de su elección) de una métrica de desempeño principal
+
+##### Análisis de exploración
+Luego de importar los datos, hacemos una exploración, donde encontramos que existen 1460 registros con 89 caraterísticas. Para este ejercicio se seleccionaron 5 variables que se aplicaran para el entrenamiento del modelo, estas son tamaño de la URL y del host, cantidad de digitos en la URL, número de subdominios, indicios de phishing y la variable respuesta, status de phishing. Se verificó la correlación de estas variables para descartar multicoliniealidad y que afecte al modelo. Podemos ver que el dataset esta balanceado respecto a la variable que deseamos predecir, si la página web es legítima o phishing, teniendo 5715 para cada status. Todas las variables son numéricas con excepción de la url y el status, que son texto. También se verifica que no existan NAs en los datos.
+```{r analisis}
+dt <- read.csv("dataset_phishing.csv")
+dim(dt)
+dt <- subset(dt, select = c(length_url, length_hostname, ratio_digits_url, phish_hints, nb_subdomains, status))
+status <- data.frame(table(dt$status))
+names(status) <- c("status", "observaciones")
+kable(status, "html") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, font_size = 16)
+str(dt)
+summary(dt)
+kable(colSums(sapply(dt, is.na)))
+
+dt$real <- ifelse(dt$status=='phishing', 1, 0)
+sample <- sample(c(TRUE, FALSE), nrow(dt), replace=TRUE, prob=c(0.8,0.2))
+train  <- dt[sample, ]
+test   <- dt[!sample, ]
+
+
+cors <- subset(dt, select = -c(status, real))
+correlations <- cor(cors)
+cols <- correlations[,colSums(abs(correlations), na.rm = TRUE) == 1] %>% colnames()
+correlations <- correlations[,colSums(abs(correlations), na.rm = TRUE) != 1]
+correlations <- correlations[!row.names(correlations) %in% cols,]
+corrplot(correlations, method="number")
+
+```
+
+## Task 2.1 - Regresión Logística
+### Implemente desde cero el algoritmo de Regresión Logística. Para ello considere lo siguiente
+* Recuerde implementar el algoritmo de gradiente descendente, tomando en cuenta parámetros como el learning rate y épocas
+* Utilice el dataset proporcionado para mostrar el funcionamiento de su algoritmo
+* Provea una métrica de desempeño, justificando su elección
+* Grafique los grupos encontrados
+  + Puede usar solamente dos variables para mostrarlos en un plano cartesiano
+* Mencione, como comentario las consideraciones extras que tuvo que tomar en cuenta durante la realización de su implementación
+Para este task no usen librerías, sino implementen el algoritmo por ustedes mismos. Además, evite el uso de herramientas de AI generativas (ChatGPT).
+Luego:
+* Repita los pasos para entrenar su modelo, pero ahora usando librerías, y compare los resultados.
+* Para esta parte sí puede usar herramientas de AI generativas.
+* Responda:
+  + ¿Cuál implementación fue mejor? ¿Por qué?
+  
+```{r reglog}
+# Función de Regresión Logística
+reg_log <- function(X, y, learning_rate, epochs){
+  
+  # Inicializar los parámetros
+  m <- nrow(X)
+  n <- ncol(X)
+  w <- matrix(0, n, 1)
+  costo <- vector()
+  
+  # Función sigmoide
+  sigmoid <- function(z) {
+    return (1 / (1 + exp(-z)))
+  }
+  
+  # Función de costo
+  cost_function <- function(X, y, w) {
+    h <- sigmoid(X %*% w)
+    cost <- -(1/m) * sum(y * log(h) + (1 - y) * log(1 - h))
+    return(cost)
+  }
+  
+  # Función gradiente
+  for (epoch in 1:epochs) {
+    h <- sigmoid(X %*% w)
+    gradient <- t(X) %*% (h - y) / m
+    w <- w - learning_rate * gradient
+    
+    # Mostrar el costo
+    if (epoch %% 100 == 0) {
+      costo <- rbind(costo, cost_function(X, y, w))
+    }
+  }
+  plot(costo)
+  return(w)
+}
+
+# Función de predicción
+predict_reg_log <- function(X, theta){
+  h <- sigmoid(X %*% theta)
+  predictions <- ifelse(h >= 0.5, 1, 0)
+  return(predictions)
+}
+
+```
+Seguidamente de generar los sets de entrenamiento y prueba, se procede a aplicar el modelo y predecir la variable de respuesta para el dataset de prueba. Se consideraron distintos números para los hiperparámetros de learning rate y epochs, en donde se fue variando para obtener el mejor rendimiento del costo. Se observa en la gráfica de la función de costo que va descendiendo en cada iteración. Luego de hacer la predicción, obtenemos la matriz de confusión con la que obtenemos la métrica de desempeño de especificidad y sensibilidad. Se escogió esta métrica debido a que nos interesa más el rendimiento de la predicción de los verdaderos positivos y verdaderos negativos, es decir, el predecir que una página es efectivamente ilegítima nos interesa más que solamente que tan preciso es el modelo. La sensibilidad nos da un 68%, lo cual nos dice que tanto predice que una página ilegítima es realmente phishing, y con la especificidad nos da 72%, osea, que tanto predice que una página es légitima cuando realmente lo es. Así mismo podemos observar en la gráfica, como se clasificaron en la predicción y el valor real.
+```{r predreglog}
+# Generar datos de entrenamiento
+Xi <- as.matrix.data.frame(subset(train, select = -c(status, real)))
+yi <- train$real
+
+# Aplicar el modelo
+theta <- reg_log(Xi, yi, 0.0001, 100000)
+
+# Generar datos de test
+Xf <- as.matrix(subset(test, select = -c(status, real)))
+yf <- test$real
+
+# Realizar predicciones
+preds <- predict_reg_log(Xf, theta)
+
+# Matriz de confusión
+cm <- confusionMatrix(as.factor(yf), as.factor(preds))
+
+Xf <- cbind(as.data.frame(Xf), yf, preds)
+
+cm$table
+cm$byClass[1]
+cm$byClass[2]
+
+
+# Plot de grupos
+plot(Xf$length_hostname, Xf$length_url,
+     main="Phishing 1 | No Phishing 0",
+     pch = 19,
+     col = factor(Xf$preds))
+legend("topleft",
+       legend = levels(factor(Xf$preds)),
+       pch = 19,
+       col = factor(levels(factor(Xf$preds))))
+
+Xi<- as.data.frame(Xi)
+Xi$real <- train$real
+plot(Xi$length_hostname, Xi$length_url,
+     main="Phishing 1 | No Phishing 0",
+     pch = 19,
+     col = factor(Xi$real))
+legend("topleft",
+       legend = levels(factor(Xi$real)),
+       pch = 19,
+       col = factor(levels(factor(Xi$real))))
+```
+Ahora, se hará la regresión logística con una librería, en este caso glm, provee la generación de este modelo. Realizamos el entrenamiento y prueba, donde nos da un resultado mejor, donde la sensibilidad y especificidad es de 71% y 80% respectivamente. La razón por la cual este modelo obtuvo mejor rendimiento es debido a que es un modelo lineal generalizado, por lo que internamente busca evitar linerealidad en las variables y evitar el overfitting, dando un mejor resultado.  
+```{r glm}
+# Generar datos de entrenamiento
+Xi <- as.data.frame(subset(train, select = -c(status)))
+yi <- test$real
+reg_log_glm <- glm(real ~.,family=binomial(link='logit'),data=Xi)
+
+# Generar datos de prueba
+Xf <- as.data.frame(subset(test, select = -c(status, real)))
+Xf$preds <- ifelse(predict(reg_log_glm,newdata=Xf,type='response') >= 0.5, 1, 0)
+Xf$real <- test$real
+
+# Matriz de confusión
+cm <- confusionMatrix(as.factor(Xf$real), as.factor(Xf$pred))
+cm$table
+cm$byClass[1]
+cm$byClass[2]
+
+```
+
+## Task 2.2 - K-Nearest Neighbors
+### Implemente desde cero el algoritmo de K-Nearest Neighbors. Para ello considere lo siguiente
+* La distancia entre puntos debe ser la dada por la forma de la distancia Euclidiana
+* Utilice el dataset proporcionado para mostrar el funcionamiento de su algoritmo
+* Provea una métrica de desempeño, justificando su elección
+* Grafique los grupos encontrados
+  + Puede usar solamente dos variables para mostrarlos en un plano cartesiano
+* Mencione, como comentario las consideraciones extras que tuvo que tomar en cuenta durante la realización de su implementación
+Para este task no usen librerías, sino implementen el algoritmo por ustedes mismos. Además, evite el uso de herramientas de AI generativas (ChatGPT).
+Luego:
+* Repita los pasos para entrenar su modelo, pero ahora usando librerías, y compare los resultados.
+* Para esta parte sí puede usar herramientas de AI generativas.
+* Responda:
+  + ¿Cuál implementación fue mejor? ¿Por qué?
+
+Para el siguiente algoritmo, se implementó K-Nearest-Neighbors, el cual mide la distancia de un punto hacia otros y ve sus clases para asignarle a este nuevo punto,dependiendo de cuantos puntos de que clase esten en un área específica. El rendimiento que se obtuvo fue de 68% de sensibilidad y 83% de especificidad. Podemos ver que la especificidad, que tanto predicirá que una página web es phishing y este en lo correcto es mayor a la detección de no phishing y estar en lo correcto. Lo que supera en buena medida al algoritmo de regresión logística. 
+```{r rknn}
+
+# Función distancia euclidiana
+euclidean <- function(a, b) {
+  sqrt(sum((a - b)^2))
+}
+
+# Función k-Nearest Neighbors
+r_knn <- function(Xf, k, Xi, Y) {
+  
+  # Obtener la distancia euclidiana
+  dist <- apply(Xi, 1, function(row) euclidean(row, Xf))
+  
+  # Obtener las clases mas cercanas
+  ids <- order(dist)[1:k]
+  classes <- unique(Y)
+  count <- numeric(length(classes))
+  
+  for (i in seq_along(classes)) {
+    count[i] <- sum(classes[i] == Y[ids])
+  }
+  
+  max_prob_class <- classes[which.max(count)]
+  
+  return(max_prob_class)
+}
+
+# Función de predicción de knn
+pred_knn <- function(Xi, y, Xf, k) {
+  predictions <- vector()
+  for (i in 1:nrow(Xf)) {
+    result <- r_knn(as.numeric(Xf[i, ]), k, Xi, y)
+    predictions <- append(predictions, result)
+  }
+  return(predictions)
+}
+
+
+# Generar datos de entrenamiento
+Xi <- as.data.frame(subset(train, select = -c(status, real)))
+Yi <- train$real
+
+# Generar datos de prueba
+Xf <- as.data.frame(subset(test, select = -c(status, real)))
+Yf <- test$real
+
+preds <- pred_knn(Xi, Yi, Xf, 2)
+Xf <- cbind(as.data.frame(Xf), Yf, preds)
+cm <- confusionMatrix(as.factor(Yf), as.factor(preds))
+cm$table
+cm$byClass[1]
+cm$byClass[2]
+
+
+# Plot de grupos
+plot(Xf$length_hostname, Xf$length_url,
+     main="Phishing 1 | No Phishing 0",
+     pch = 19,
+     col = factor(Xf$preds))
+legend("topleft",
+       legend = levels(factor(Xf$preds)),
+       pch = 19,
+       col = factor(levels(factor(Xf$preds))))
+```
+
+Finalmente se aplica el modelo KNN de la librería caret, en donde obtenemos una métrica de rendimiento bastante similar al KNN implementado anteriormente. Esta librería utiliza otra manera de calcular la distancia, lo cual puede hacer que, para este caso en particular y dataset, haya obtenido un resultado distinto pero muy similar al algoritmo implementado.
+```{r caretknn}
+# Generar datos de entrenamiento
+Xi <- as.data.frame(subset(train, select = -c(real)))
+
+# Generar datos de prueba
+Xf <- as.data.frame(subset(test, select = -c(real)))
+
+classifier_knn <- train(status~., data=Xi, method="knn")
+Xf$prediction <- predict(classifier_knn, Xf)
+
+cm <- confusionMatrix(as.factor(Xf$status), as.factor(Xf$prediction))
+cm$table
+cm$byClass[1]
+cm$byClass[2]
+```
+### Anexo
+#### Repositorio en github
+* https://github.com/ivanhez/IALAB1/
+
+### Referencias
+* https://www.kaggle.com/datasets/shashwatwork/web-page-phishing-detection-dataset/data
+* https://www.analyticsvidhya.com/blog/2022/02/implementing-logistic-regression-from-scratch-using-python/
+
+* https://arxiv.org/pdf/2010.12847.pdf
+* https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/glm
+* https://www.datacamp.com/tutorial/logistic-regression-R
+* https://rpubs.com/JairoAyala/601703
